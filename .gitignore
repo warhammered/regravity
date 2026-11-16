@@ -1,0 +1,17 @@
+# Local credentials and accounts (NEVER commit credentials)
+accounts/
+*.token
+*.key
+*.db
+*.log
+# Build & caches
+__pycache__/
+*.pyc
+sidecars/
+scratch/
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,27 @@
+{
+  "name": "regravity",
+  "version": "0.1.0",
+  "description": "Regravity - Stateless Multi-Account & Isolated Parallel Profile Manager for Google Antigravity. Direct Google OAuth, 100% Zero-Proxy.",
+  "author": {
+    "name": "Vishan Dey",
+    "email": "vishankolkata@gmail.com"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/warhammered/regravity.git"
+  },
+  "keywords": [
+    "antigravity",
+    "google-antigravity",
+    "account-manager",
+    "account-switcher",
+    "regravity",
+    "multi-account",
+    "profiles",
+    "parallel-sessions"
+  ],
+  "engines": {
+    "antigravity": ">=2.0.0"
+  }
+}

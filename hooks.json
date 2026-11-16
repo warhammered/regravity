@@ -1,0 +1,11 @@
+{
+  "regravity-update-guard": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python guardian.py --heal",
+        "timeout": 15
+      }
+    ]
+  }
+}

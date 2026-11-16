@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg_mob" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#141418"/>
+      <stop offset="100%" stop-color="#08080a"/>
+    </linearGradient>
+    <linearGradient id="mob_ribbon" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="35%" stop-color="#f4f4f5"/>
+      <stop offset="70%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="36" y="36" width="440" height="440" rx="104" fill="url(#bg_mob)" stroke="rgba(255,255,255,0.08)" stroke-width="6"/>
+
+  <circle cx="256" cy="256" r="140" fill="#38bdf8" fill-opacity="0.1" filter="blur(28px)"/>
+
+  <!-- Fluid Ribbon 'R': Ascends from base, loops around smoothly, and sweeps into a gravitational leg -->
+  <path d="M 170 370 
+           L 170 180 
+           C 170 130, 230 130, 275 130 
+           C 335 130, 365 165, 365 215 
+           C 365 265, 325 295, 260 295 
+           L 180 295 
+           M 250 295 
+           L 355 370" 
+        fill="none" stroke="url(#mob_ribbon)" stroke-width="38" stroke-linecap="round" stroke-linejoin="round"/>
+        
+  <!-- Momentum Beacon Node at the leg tip -->
+  <circle cx="355" cy="370" r="12" fill="#38bdf8"/>
+</svg>
