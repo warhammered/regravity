@@ -69,7 +69,11 @@ def is_asar_patched(asar_file: Path | None) -> bool:
     try:
         with open(asar_file, "rb") as f:
             content = f.read()
-            return b"paragravityNative" in content and b"paragravity:listAccounts" in content
+            has_ipc = b"paragravity:listAccounts" in content
+            has_api = b"paragravityNative" in content
+            has_runner = b"installAccountSwitcherNavButton" in content
+            has_fix = b".reload_antigravity_window" in content
+            return has_ipc and has_api and has_runner and has_fix
     except Exception:
         return False
 
@@ -175,7 +179,7 @@ def extract_asar(asar_file: Path, target_dir: Path) -> bool:
         except Exception as e:
             log_warn(f"Could not link {expected_unpacked} to {real_unpacked}: {e}")
 
-    cmd = ["npx", "asar", "extract", str(asar_file), str(target_dir)]
+    cmd = ["npx", "--yes", "asar", "extract", str(asar_file), str(target_dir)]
     if sys.platform == "win32":
         cmd[0] = "npx.cmd" if shutil.which("npx.cmd") else "npx"
     try:
@@ -187,7 +191,7 @@ def extract_asar(asar_file: Path, target_dir: Path) -> bool:
 
 def pack_asar(source_dir: Path, target_file: Path) -> bool:
     """Packs target directory into app.asar using npx asar."""
-    cmd = ["npx", "asar", "pack", str(source_dir), str(target_file)]
+    cmd = ["npx", "--yes", "asar", "pack", str(source_dir), str(target_file)]
     if sys.platform == "win32":
         cmd[0] = "npx.cmd" if shutil.which("npx.cmd") else "npx"
     try:
@@ -290,8 +294,11 @@ def strip_paragravity_ipc_handlers(code: str) -> str:
             break
         code = code[:line_start] + code[end:]
 
-    # Drop a leftover bridge marker comment from any older release.
+    # Drop a leftover bridge marker comment and variables from any older release.
     code = code.replace("    // --- ParaGravity Native IPC Bridge ---\n", "")
+    code = code.replace("    let activeAuthChild = null;\n", "")
+    code = code.replace("let activeAuthChild = null;\n", "")
+    code = code.replace("    var activeAuthChild = null;\n", "")
     timer_marker = "if (!global.__paragravitySyncTimer)"
     if timer_marker in code:
         t_idx = code.find(timer_marker)
@@ -319,8 +326,8 @@ def patch_ipc_handlers(ipc_path: Path) -> bool:
         return False
 
     code = ipc_path.read_text(encoding="utf-8")
-    if "paragravity:syncConversations" in code and "executeJavaScript" in code and "paragravity:listAccounts" in code:
-        log_step("dist/ipcHandlers.js is already patched with paragravity handlers.")
+    if "paragravity:syncConversations" in code and ".reload_antigravity_window" in code and "paragravity:listAccounts" in code:
+        log_step("dist/ipcHandlers.js is already patched with latest paragravity handlers.")
         return True
 
     # Strip any earlier injection regardless of whether it used the marker
@@ -333,7 +340,7 @@ def patch_ipc_handlers(ipc_path: Path) -> bool:
 
     ipc_block = """
     // --- ParaGravity Native IPC Bridge ---
-    let activeAuthChild = null;
+    var activeAuthChild = null;
     electron_1.ipcMain.handle('paragravity:listAccounts', async (_event, force) => {
         const cp = require('child_process');
         const path = require('path');
@@ -373,6 +380,17 @@ def patch_ipc_handlers(ipc_path: Path) -> bool:
             const path = require('path');
             const os = require('os');
             const fs = require('fs');
+
+            // Signal handler for hot-reloading Antigravity windows after install or patch
+            const reloadSig = path.join(os.homedir(), '.gemini', '.reload_antigravity_window');
+            if (fs.existsSync(reloadSig)) {
+                try { fs.unlinkSync(reloadSig); } catch (e) {}
+                electron_1.webContents.getAllWebContents().forEach(wc => {
+                    if (!wc.isDestroyed() && wc.getURL() && !wc.getURL().includes('devtools://')) {
+                        try { wc.reload(); } catch (e) {}
+                    }
+                });
+            }
 
             // Signal handler for opening Regravity UI and Modals
             const sigFile = path.join(os.homedir(), '.gemini', '.open_regravity_ui');
@@ -416,6 +434,23 @@ def patch_ipc_handlers(ipc_path: Path) -> bool:
                         }
                     });
                 }
+            }
+
+            // Ensure client.js is injected into active windows if window is open without button
+            const clientJsPath = path.join(os.homedir(), '.gemini', 'config', 'plugins', 'paragravity', 'client.js');
+            if (fs.existsSync(clientJsPath)) {
+                try {
+                    const clientSrc = fs.readFileSync(clientJsPath, 'utf-8');
+                    electron_1.webContents.getAllWebContents().forEach(wc => {
+                        if (!wc.isDestroyed() && wc.getURL() && !wc.getURL().includes('devtools://')) {
+                            wc.executeJavaScript(`
+                                if (!window.__agyAccountSwitcherInjected) {
+                                    ${clientSrc}
+                                }
+                            `).catch(() => {});
+                        }
+                    });
+                } catch (e) {}
             }
 
             const script = path.join(os.homedir(), '.gemini', 'config', 'plugins', 'paragravity', 'session_swap.py');
@@ -613,9 +648,34 @@ try {
 
     runner_block = f"""
 function installAccountSwitcherNavButton() {{
-    runMain({json.dumps(client_code)});
+    try {{
+        const electron = typeof electron_1 !== 'undefined' ? electron_1 : require('electron');
+        const run = (js) => {{
+            try {{
+                if (electron && electron.webFrame && electron.webFrame.executeJavaScript) {{
+                    return electron.webFrame.executeJavaScript(js);
+                }}
+            }} catch (e) {{
+                console.error('[Regravity] executeJavaScript failed:', e);
+            }}
+        }};
+        void Promise.resolve(run({json.dumps(client_code)})).catch((err) => {{
+            console.error('[Regravity] Injection error:', err);
+        }});
+        if (typeof window !== 'undefined' && window.addEventListener) {{
+            window.addEventListener('DOMContentLoaded', () => {{
+                void Promise.resolve(run({json.dumps(client_code)})).catch(() => {{}});
+            }});
+        }}
+    }} catch (err) {{
+        console.error('[Regravity] installAccountSwitcherNavButton error:', err);
+    }}
 }}
-installAccountSwitcherNavButton();
+try {{
+    installAccountSwitcherNavButton();
+}} catch (err) {{
+    console.error('[Regravity] Failed to run installAccountSwitcherNavButton:', err);
+}}
 """
 
     # 1. Ensure API bridge is present
@@ -633,25 +693,14 @@ installAccountSwitcherNavButton();
             code = code[:pos] + api_block + "\n" + code[pos:]
         else:
             code = api_block + "\n" + code
-    if "paragravityNativeAPI" not in code:
-        pos = code.find("electron_1.contextBridge.exposeInMainWorld(")
-        if pos != -1:
-            code = code[:pos] + api_block + "\n" + code[pos:]
-        else:
-            code = api_block + "\n" + code
 
     # 2. Update or inject client runner block
     tag = "function installAccountSwitcherNavButton()"
     if tag in code:
         pos_start = code.find(tag)
-        pos_call = code.find("installAccountSwitcherNavButton();", pos_start)
-        if pos_call != -1:
-            end_pos = pos_call + len("installAccountSwitcherNavButton();")
-            code = code[:pos_start] + runner_block.strip() + code[end_pos:]
-        else:
-            code = code[:pos_start] + runner_block.strip()
-    else:
-        code = code.rstrip() + "\n" + runner_block.strip() + "\n"
+        code = code[:pos_start].rstrip()
+
+    code = code.rstrip() + "\n" + runner_block.strip() + "\n"
 
     preload_path.write_text(code, encoding="utf-8")
     return True
@@ -979,6 +1028,13 @@ def do_install(asar_path: Path | None, source_dir: Path, skip_asar: bool = False
                 f.write(new_data)
         log_success("Deployed updated app.asar.")
 
+        # Trigger live IDE refresh
+        try:
+            reload_file = get_gemini_dir() / ".reload_antigravity_window"
+            reload_file.write_text("reload", encoding="utf-8")
+        except Exception:
+            pass
+
     # 8. Post-Install Verification
     session_py = get_plugin_dir() / "session_swap.py"
     try:
@@ -1000,7 +1056,10 @@ def do_install(asar_path: Path | None, source_dir: Path, skip_asar: bool = False
     print(f"\n{C_GREEN}{C_BOLD}═══════════════════════════════════════════════════════════════════{C_RESET}")
     print(f"{C_GREEN}{C_BOLD}  ✓ Regravity has been successfully installed and configured!      {C_RESET}")
     print(f"{C_GREEN}{C_BOLD}═══════════════════════════════════════════════════════════════════{C_RESET}\n")
-    print(f"  • {C_BOLD}Launch Antigravity{C_RESET}: You will see the new {C_CYAN}Account Manager (Regravity){C_RESET} button on the sidebar.")
+    if is_antigravity_running():
+        print(f"  • {C_YELLOW}{C_BOLD}Active Window Note{C_RESET}: Antigravity is currently open. If the button hasn't appeared yet, press {C_CYAN}Ctrl+R{C_RESET} in Antigravity or restart the IDE to refresh.")
+    else:
+        print(f"  • {C_BOLD}Launch Antigravity{C_RESET}: You will see the new {C_CYAN}Account Manager (Regravity){C_RESET} button on the sidebar.")
     print(f"  • {C_BOLD}Update Survival{C_RESET}: Guardian Watcher automatically re-patches Antigravity across Google updates.")
     print(f"  • {C_BOLD}CLI Access{C_RESET}: Run {C_CYAN}regravity --list{C_RESET}, {C_CYAN}rgrav --help{C_RESET}, or {C_CYAN}paragravity --list{C_RESET} from any terminal.")
     print(f"  • {C_BOLD}Uninstall anytime{C_RESET}: Run {C_CYAN}python install.py --uninstall{C_RESET} to restore original factory files.")

@@ -865,8 +865,11 @@
   window.__pgOpen = openAccountSwitcherPage;
 
   function ensureButton() {
-    const customizationsLink = document.querySelector('a[href="/customizations"]');
-    const nav = document.querySelector('[data-testid="sidebar-navigation-items"]') || (customizationsLink ? customizationsLink.parentElement : null);
+    const customizationsLink = document.querySelector('a[href="/customizations"], a[href="/automations"]');
+    const newConvoBtn = document.querySelector('[data-testid="new-conversation-button"]');
+    const nav = document.querySelector('[data-testid="sidebar-navigation-items"]') ||
+                (customizationsLink ? customizationsLink.parentElement : null) ||
+                (newConvoBtn ? newConvoBtn.parentElement : null);
     if (!nav) return;
     let btn = nav.querySelector('[data-testid="account-switcher-button"]');
     const buttonTitle = 'Account Manager (Regravity)';
